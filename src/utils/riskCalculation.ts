@@ -3,32 +3,61 @@ import { BiometricData, RiskAssessment, RiskFactor, ShapValues } from "@/types/h
 export const calculateRiskAssessment = (data: BiometricData, shapValues?: ShapValues): RiskAssessment => {
   // Heart disease risk calculation
   let heartRiskScore = 0;
-  
-  // Age factor (higher age = higher risk)
-  if (data.age > 65) heartRiskScore += 30;
-  else if (data.age > 50) heartRiskScore += 20;
-  else if (data.age > 40) heartRiskScore += 10;
 
-  // Blood pressure factor
-  if (data.systolicBP > 140 || data.diastolicBP > 90) heartRiskScore += 25;
-  else if (data.systolicBP > 130 || data.diastolicBP > 85) heartRiskScore += 15;
+  // AGE (cutoffs from SHAP dependence: <40, 40–50, 50–60, >60)
+  if (data.age > 60) {
+    heartRiskScore += 30; // highest contribution
+  } else if (data.age > 50) {
+    heartRiskScore += 20;
+  } else if (data.age > 40) {
+    heartRiskScore += 10;
+  }
 
-  // Heart rate factor
-  if (data.heartRate > 100) heartRiskScore += 15;
-  else if (data.heartRate < 50) heartRiskScore += 10;
+  // SYSTOLIC BLOOD PRESSURE (trestbps)
+  // SHAP shows clear jumps around 120, 140, 160 mmHg
+  if (data.systolicBP > 160) {
+    heartRiskScore += 25; // very high BP
+  } else if (data.systolicBP > 140) {
+    heartRiskScore += 18; // stage 2-ish
+  } else if (data.systolicBP > 120) {
+    heartRiskScore += 10; // elevated
+  }
 
-  // BMI factor
-  if (data.bmi > 30) heartRiskScore += 20;
-  else if (data.bmi > 25) heartRiskScore += 10;
-  else if (data.bmi < 18.5) heartRiskScore += 10;
+  // DIASTOLIC BP (kept as a secondary safeguard)
+  if (data.diastolicBP > 90 && data.systolicBP <= 120) {
+    heartRiskScore += 10;
+  }
 
-  // Sex factor
-  if (data.sex === "male" && data.age > 45) heartRiskScore += 10;
+  // RESTING HEART RATE (same logic as before)
+  if (data.heartRate > 100) {
+    heartRiskScore += 15;
+  } else if (data.heartRate < 50) {
+    heartRiskScore += 10;
+  }
 
-  // Apply SHAP adjustments if provided
-  if (shapValues?.age) heartRiskScore += shapValues.age * 10;
-  if (shapValues?.systolicBP) heartRiskScore += shapValues.systolicBP * 10;
+  // BMI (same bins; SHAP said it’s less important than age/BP, so weights are smaller)
+  if (data.bmi > 30) {
+    heartRiskScore += 20;
+  } else if (data.bmi > 25) {
+    heartRiskScore += 10;
+  } else if (data.bmi < 18.5) {
+    heartRiskScore += 10;
+  }
 
+  // SEX – small modifier (keep clinically intuitive, small weight)
+  if (data.sex === "male" && data.age > 45) {
+    heartRiskScore += 5;
+  }
+
+  // SHAP adjustments (local explanation nudges, using safe type checks)
+  if (typeof shapValues?.age === "number") {
+    heartRiskScore += shapValues.age * 10;
+  }
+  if (typeof shapValues?.systolicBP === "number") {
+    heartRiskScore += shapValues.systolicBP * 8;
+  }
+
+  // Clamp to [0, 100]
   heartRiskScore = Math.min(100, Math.max(0, heartRiskScore));
 
   // Neurological risk calculation

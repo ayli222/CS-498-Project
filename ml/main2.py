@@ -17,22 +17,23 @@ import shap
 from scipy.special import expit  # sigmoid
 
 # --------------------------
-# 1. Load and preprocess data
+# 1. Load and clean the data
 # --------------------------
 data = pd.read_csv("heart_disease.csv")
 
+# Remove unused identifier column if present
 if "id" in data.columns:
     data = data.drop(columns=["id"])
 
-# Fill missing numeric values
+# Fill missing numeric entries with column medians
 data = data.fillna(data.median(numeric_only=True))
 
-# Target: thal; Drop cp (domain-based choice)
+# Our target is "thal". We exclude "cp" based on domain knowledge.
 X = data.drop(columns=["thal", "cp"])
 y = data["thal"]
 
 # --------------------------
-# 2. 10-fold cross-validation metrics
+# 2. 10-fold cross-validation
 # --------------------------
 X_np = X.values
 y_np = y.values
@@ -67,6 +68,7 @@ for train_idx, test_idx in kf.split(X_np, y_np):
     f1s.append(f1_score(y_test, y_pred))
     aucs.append(roc_auc_score(y_test, y_proba))
 
+# Display all CV results
 print("\n===== 10-Fold Cross-Validation Metrics =====")
 print(f"Accuracy:  {np.mean(accs):.3f} ± {np.std(accs):.3f}")
 print(f"Precision: {np.mean(precs):.3f} ± {np.std(precs):.3f}")
@@ -76,7 +78,7 @@ print(f"ROC AUC:   {np.mean(aucs):.3f} ± {np.std(aucs):.3f}")
 
 #%%
 # --------------------------
-# 3. Fit final model on all data (for SHAP)
+# 3. Train final model for SHAP analysis
 # --------------------------
 clf = XGBClassifier(
     n_estimators=200,
@@ -97,7 +99,7 @@ clf.fit(X, y)
 explainer = shap.TreeExplainer(clf)
 shap_values = explainer(X)
 
-# Global feature importance (mean |SHAP|)
+# Compute global importance using mean absolute SHAP values
 global_importance = np.mean(np.abs(shap_values.values), axis=0)
 sorted_idx_global = np.argsort(-global_importance)
 
@@ -105,7 +107,7 @@ print("\n===== Global Feature Importance (mean |SHAP|) =====")
 for idx in sorted_idx_global:
     print(f"{X.columns[idx]}: {global_importance[idx]:.4f}")
 
-# Plot global feature importance
+# Plot global SHAP importance
 plt.figure(figsize=(8, 5))
 plt.barh(
     [X.columns[i] for i in sorted_idx_global],
@@ -118,29 +120,26 @@ plt.show()
 
 #%%
 # --------------------------
-# 5. SHAP dependence plots (used to derive cutoffs)
+# 5. SHAP dependence plots for top features
 # --------------------------
 top3 = sorted_idx_global[:3]
 
 for idx in top3:
-    feature = X.columns[idx]
     shap.dependence_plot(idx, shap_values.values, X, feature_names=X.columns)
 
 #%%
 # --------------------------
-# 6. Local explanation for one patient
+# 6. Local explanation for one selected patient
 # --------------------------
-i = 7  # index of datapoint
+i = 7  # pick a sample patient to inspect
 x_instance = X.iloc[[i]]
 
-# Waterfall plot
+# Visualize the SHAP waterfall for this individual
 shap.plots.waterfall(shap_values[i], max_display=10)
 
-# Baseline probability (expected)
+# Compare model baseline probability to patient's predicted probability
 base_value = shap_values.base_values[i]
 p_mean = expit(base_value)
-
-# Instance probability
 p_instance = clf.predict_proba(x_instance)[0, 1]
 
 print(f"\nBaseline prob (expected):   {p_mean:.3f}")
@@ -148,7 +147,7 @@ print(f"Instance prob (patient {i}): {p_instance:.3f}")
 
 #%%
 # --------------------------
-# 7. Local top feature ranking
+# 7. Rank top contributing factors for this patient
 # --------------------------
 row_shap = shap_values[i]
 abs_vals = np.abs(row_shap.values)
